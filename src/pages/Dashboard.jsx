@@ -1,6 +1,143 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { sendEmailNotification } from '../utils/emailService';
 
 // Helper components
+const Toast = ({ toast, onClose }) => {
+  if (!toast) return null;
+  return (
+    <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-[#131525]/95 backdrop-blur-md border border-[#7c5cfc]/30 rounded-2xl p-4 shadow-2xl shadow-[#7c5cfc]/10 flex gap-3 transition-all duration-300">
+      <div className="w-10 h-10 rounded-full bg-[#7c5cfc]/10 flex items-center justify-center text-[#7c5cfc] flex-shrink-0">
+        ✉️
+      </div>
+      <div className="flex-1">
+        <h4 className="text-sm font-bold text-white mb-0.5">{toast.title}</h4>
+        <p className="text-xs text-slate-400 leading-tight">{toast.message}</p>
+      </div>
+      <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors flex-shrink-0 self-start">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+  );
+};
+
+const OutboxDrawer = ({ isOpen, onClose }) => {
+  const [logs, setLogs] = useState([]);
+  const [selectedMail, setSelectedMail] = useState(null);
+
+  const loadLogs = () => {
+    const saved = localStorage.getItem('ape-email-log');
+    if (saved) {
+      setLogs(JSON.parse(saved));
+    } else {
+      setLogs([]);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      loadLogs();
+      setSelectedMail(null);
+    }
+    
+    const handleUpdate = () => {
+      loadLogs();
+    };
+    window.addEventListener('ape-email-log-updated', handleUpdate);
+    return () => window.removeEventListener('ape-email-log-updated', handleUpdate);
+  }, [isOpen]);
+
+  const clearLogs = () => {
+    if (confirm('Are you sure you want to clear the entire outbox log?')) {
+      localStorage.removeItem('ape-email-log');
+      setLogs([]);
+      setSelectedMail(null);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-hidden">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
+      <div className="absolute inset-y-0 right-0 max-w-full flex pl-10">
+        <div className="w-screen max-w-2xl bg-[#0d0f1a] border-l border-white/10 text-slate-200 shadow-2xl flex flex-col h-full transform transition-all duration-300">
+          <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <span>✉️ Email Outbox Log</span>
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#7c5cfc]/20 text-[#7c5cfc]">{logs.length} Sent</span>
+              </h2>
+              <p className="text-xs text-slate-400">Track and preview automated email dispatches</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {logs.length > 0 && (
+                <button onClick={clearLogs} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all" title="Clear all logs">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+              )}
+              <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 flex overflow-hidden">
+            <div className={`overflow-y-auto p-4 space-y-2 border-r border-white/5 transition-all ${selectedMail ? 'w-1/2' : 'w-full'}`}>
+              {logs.length === 0 ? (
+                <div className="text-center py-20 text-slate-500 space-y-3">
+                  <span className="text-4xl block">📬</span>
+                  <p className="text-sm font-semibold">No emails sent yet.</p>
+                  <p className="text-xs text-slate-400 max-w-xs mx-auto">Create tasks, toggle task statuses, or run a test email in settings to trigger notifications!</p>
+                </div>
+              ) : (
+                logs.map(log => (
+                  <div key={log.id} onClick={() => setSelectedMail(log)} className={`p-4 rounded-xl border text-left cursor-pointer transition-all ${selectedMail?.id === log.id ? 'bg-[#7c5cfc]/10 border-[#7c5cfc]/40' : 'bg-slate-900/40 border-white/5 hover:border-white/10 hover:bg-slate-800/40'}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 px-2 py-0.5 rounded bg-white/5">{log.event.replace('_', ' ')}</span>
+                      <span className="text-[10px] text-slate-500">{new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                    </div>
+                    <h4 className="text-sm font-semibold text-white truncate mb-1">{log.subject}</h4>
+                    <p className="text-xs text-slate-400 mb-2 truncate">To: {log.to}</p>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${log.status === 'sent' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{log.status.toUpperCase()}</span>
+                      <span className="text-[10px] text-slate-500 italic">via {log.provider}</span>
+                    </div>
+                    {log.error && (
+                      <p className="text-[10px] text-red-400 mt-2 p-1.5 bg-red-500/5 rounded border border-red-500/10 leading-tight truncate">{log.error}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            {selectedMail && (
+              <div className="w-1/2 flex flex-col bg-slate-950/40 h-full overflow-hidden">
+                <div className="p-4 border-b border-white/5 flex justify-between items-center bg-slate-900/20">
+                  <div>
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wide">HTML Email Preview</h3>
+                    <p className="text-[10px] text-slate-400">Isolated Preview Environment</p>
+                  </div>
+                  <button onClick={() => setSelectedMail(null)} className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-white/5 hover:bg-white/10 transition-colors">Close Preview</button>
+                </div>
+                <div className="p-4 text-xs space-y-1 bg-slate-900/10 border-b border-white/5">
+                  <div className="flex"><span className="w-16 font-semibold text-slate-500">Subject:</span><span className="text-slate-200 font-medium truncate">{selectedMail.subject}</span></div>
+                  <div className="flex"><span className="w-16 font-semibold text-slate-500">To:</span><span className="text-slate-200 font-medium">{selectedMail.to}</span></div>
+                  <div className="flex"><span className="w-16 font-semibold text-slate-500">Status:</span><span className={`${selectedMail.status === 'sent' ? 'text-green-400' : 'text-red-400'} font-bold`}>{selectedMail.status.toUpperCase()}</span></div>
+                </div>
+                <div className="flex-1 p-4 bg-slate-950 overflow-hidden flex flex-col">
+                  <iframe 
+                    srcDoc={selectedMail.html} 
+                    title="Email Preview Frame"
+                    className="w-full h-full bg-white rounded-xl border border-white/10"
+                    sandbox="allow-popups"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 const Modal = ({ isOpen, onClose, onSubmit }) => {
   const [name, setName] = useState('');
   const [project, setProject] = useState('Marketing');
@@ -74,24 +211,89 @@ const PriorityBadge = ({ priority }) => {
 const SettingsComponent = ({ userName, setUserName }) => {
   const [activeTab, setActiveTab] = useState('Profile');
   const [editName, setEditName] = useState(userName);
-  const [email, setEmail] = useState(localStorage.getItem('registeredEmail') || 'john@example.com');
+  const [email, setEmail] = useState(localStorage.getItem('registeredEmail') || 'udarawijesekara9@gmail.com');
   
-  const [notifPrefs, setNotifPrefs] = useState({
-    reminders: true, completed: false, assigned: true, digest: false, updates: false
+  const [notifPrefs, setNotifPrefs] = useState(() => {
+    const saved = localStorage.getItem('notifPrefs');
+    return saved ? JSON.parse(saved) : { reminders: true, completed: true, assigned: true, digest: false, updates: false };
   });
   const [theme, setTheme] = useState('dark');
   const [accent, setAccent] = useState('bg-[#7c5cfc]');
   const [securityPrefs, setSecurityPrefs] = useState({
     twoFactor: false, loginAlerts: true
   });
+
+  // Email Notification States
+  const [emailEnabled, setEmailEnabled] = useState(() => localStorage.getItem('emailNotifEnabled') === 'true');
+  const [provider, setProvider] = useState(() => localStorage.getItem('emailProvider') || 'simulator');
+  const [emailjsServiceId, setEmailjsServiceId] = useState(() => localStorage.getItem('emailjsServiceId') || '');
+  const [emailjsTemplateId, setEmailjsTemplateId] = useState(() => localStorage.getItem('emailjsTemplateId') || '');
+  const [emailjsPublicKey, setEmailjsPublicKey] = useState(() => localStorage.getItem('emailjsPublicKey') || '');
+  const [resendApiKey, setResendApiKey] = useState(() => localStorage.getItem('resendApiKey') || '');
+  const [resendFromEmail, setResendFromEmail] = useState(() => localStorage.getItem('resendFromEmail') || 'onboarding@resend.dev');
+  const [webhookUrl, setWebhookUrl] = useState(() => localStorage.getItem('webhookUrl') || '');
+
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState(null);
   
-  const toggleNotif = (id) => setNotifPrefs(p => ({ ...p, [id]: !p[id] }));
+  const toggleNotif = (id) => {
+    const updated = { ...notifPrefs, [id]: !notifPrefs[id] };
+    setNotifPrefs(updated);
+    localStorage.setItem('notifPrefs', JSON.stringify(updated));
+  };
   const toggleSecurity = (id) => setSecurityPrefs(p => ({ ...p, [id]: !p[id] }));
   
   const handleSaveProfile = (e) => {
     e.preventDefault();
     setUserName(editName);
     localStorage.setItem('registeredName', editName);
+    localStorage.setItem('registeredEmail', email);
+  };
+
+  const handleSaveEmailConfig = (e) => {
+    e.preventDefault();
+    localStorage.setItem('emailNotifEnabled', emailEnabled ? 'true' : 'false');
+    localStorage.setItem('emailProvider', provider);
+    localStorage.setItem('emailjsServiceId', emailjsServiceId);
+    localStorage.setItem('emailjsTemplateId', emailjsTemplateId);
+    localStorage.setItem('emailjsPublicKey', emailjsPublicKey);
+    localStorage.setItem('resendApiKey', resendApiKey);
+    localStorage.setItem('resendFromEmail', resendFromEmail);
+    localStorage.setItem('webhookUrl', webhookUrl);
+    
+    setTestResult({ success: true, message: 'Settings saved successfully!' });
+    setTimeout(() => setTestResult(null), 3000);
+  };
+
+  const handleSendTestEmail = async () => {
+    localStorage.setItem('emailNotifEnabled', emailEnabled ? 'true' : 'false');
+    localStorage.setItem('emailProvider', provider);
+    localStorage.setItem('emailjsServiceId', emailjsServiceId);
+    localStorage.setItem('emailjsTemplateId', emailjsTemplateId);
+    localStorage.setItem('emailjsPublicKey', emailjsPublicKey);
+    localStorage.setItem('resendApiKey', resendApiKey);
+    localStorage.setItem('resendFromEmail', resendFromEmail);
+    localStorage.setItem('webhookUrl', webhookUrl);
+
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      const res = await sendEmailNotification('test_email', {});
+      if (res.success) {
+        setTestResult({ success: true, message: 'Test email notification triggered successfully! Check outbox.' });
+      } else {
+        setTestResult({ success: false, message: `Failed: ${res.reason || 'Unknown error'}` });
+      }
+    } catch (err) {
+      setTestResult({ success: false, message: `Failed: ${err.message}` });
+    } finally {
+      setTestSending(false);
+    }
+  };
+
+  const saveSetting = (key, val, setter) => {
+    setter(val);
+    localStorage.setItem(key, val);
   };
 
   const tabs = ['Profile', 'Notifications', 'Appearance', 'Account'];
@@ -189,6 +391,101 @@ const SettingsComponent = ({ userName, setUserName }) => {
                   </label>
                 </div>
               ))}
+            </div>
+
+            <div className="mt-8">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Email Integration Setup</h3>
+              <form onSubmit={handleSaveEmailConfig} className="bg-[#131525] border border-white/5 rounded-2xl p-6 space-y-6">
+                
+                <div className="flex items-center justify-between pb-4 border-b border-white/5">
+                  <div>
+                    <h4 className="text-sm font-semibold text-white mb-0.5">Enable Email Alerts</h4>
+                    <p className="text-xs text-slate-400">Receive real-time notifications directly in your inbox</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" className="sr-only peer" checked={emailEnabled} onChange={() => setEmailEnabled(!emailEnabled)} />
+                    <div className="w-11 h-6 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#7c5cfc]"></div>
+                  </label>
+                </div>
+
+                {emailEnabled && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-2 uppercase">Delivery Channel</label>
+                      <select value={provider} onChange={e => { setProvider(e.target.value); localStorage.setItem('emailProvider', e.target.value); }} className="w-full px-4 py-2 bg-slate-900/50 border border-white/5 rounded-lg text-white focus:outline-none focus:border-[#7c5cfc]/50 focus:ring-1 focus:ring-[#7c5cfc]/50">
+                        <option value="simulator">Mock Simulator (No accounts needed)</option>
+                        <option value="emailjs">EmailJS (Send from client)</option>
+                        <option value="resend">Resend API (SaaS / API Key)</option>
+                        <option value="webhook">Custom Webhook POST</option>
+                      </select>
+                    </div>
+
+                    {provider === 'simulator' && (
+                      <div className="p-4 bg-[#7c5cfc]/5 border border-[#7c5cfc]/20 rounded-xl text-xs text-slate-300 leading-relaxed">
+                        <span className="font-semibold text-white block mb-1">💡 Simulator Mode Active</span>
+                        No API keys required. Trigger task additions or status updates to view gorgeous HTML email previews instantly inside the app's Outbox Drawer (envelope icon in the header).
+                      </div>
+                    )}
+
+                    {provider === 'emailjs' && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-950/40 rounded-xl border border-white/5">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">Service ID</label>
+                          <input type="text" placeholder="e.g. service_xxxxxx" value={emailjsServiceId} onChange={e => saveSetting('emailjsServiceId', e.target.value, setEmailjsServiceId)} className="w-full px-3 py-2 bg-slate-900 border border-white/5 rounded-lg text-sm text-white focus:outline-none focus:border-[#7c5cfc]/50" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">Template ID</label>
+                          <input type="text" placeholder="e.g. template_xxxxxx" value={emailjsTemplateId} onChange={e => saveSetting('emailjsTemplateId', e.target.value, setEmailjsTemplateId)} className="w-full px-3 py-2 bg-slate-900 border border-white/5 rounded-lg text-sm text-white focus:outline-none focus:border-[#7c5cfc]/50" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">Public Key</label>
+                          <input type="text" placeholder="e.g. user_xxxxxx" value={emailjsPublicKey} onChange={e => saveSetting('emailjsPublicKey', e.target.value, setEmailjsPublicKey)} className="w-full px-3 py-2 bg-slate-900 border border-white/5 rounded-lg text-sm text-white focus:outline-none focus:border-[#7c5cfc]/50" />
+                        </div>
+                      </div>
+                    )}
+
+                    {provider === 'resend' && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-950/40 rounded-xl border border-white/5">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">API Key</label>
+                          <input type="password" placeholder="re_xxxxxxxx" value={resendApiKey} onChange={e => saveSetting('resendApiKey', e.target.value, setResendApiKey)} className="w-full px-3 py-2 bg-slate-900 border border-white/5 rounded-lg text-sm text-white focus:outline-none focus:border-[#7c5cfc]/50" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">From Email Address</label>
+                          <input type="email" placeholder="onboarding@resend.dev" value={resendFromEmail} onChange={e => saveSetting('resendFromEmail', e.target.value, setResendFromEmail)} className="w-full px-3 py-2 bg-slate-900 border border-white/5 rounded-lg text-sm text-white focus:outline-none focus:border-[#7c5cfc]/50" />
+                        </div>
+                        <div className="col-span-2 text-xs text-amber-400 bg-amber-400/5 p-3 rounded-lg border border-amber-400/20">
+                          ⚠️ <strong>CORS Policy Notice:</strong> Resend API restricts client-side requests from localhost/browsers by default. Use webhooks or proxy domains to pass requests if direct fetching causes headers errors.
+                        </div>
+                      </div>
+                    )}
+
+                    {provider === 'webhook' && (
+                      <div className="p-4 bg-slate-950/40 rounded-xl border border-white/5 space-y-2">
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">Webhook URL</label>
+                        <input type="url" placeholder="https://api.zapier.com/hooks/..." value={webhookUrl} onChange={e => saveSetting('webhookUrl', e.target.value, setWebhookUrl)} className="w-full px-3 py-2 bg-slate-900 border border-white/5 rounded-lg text-sm text-white focus:outline-none focus:border-[#7c5cfc]/50" />
+                        <span className="text-[10px] text-slate-500 block">Sends a POST request containing task info and formatted HTML content to automate processes in Zapier, Make, etc.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {testResult && (
+                  <div className={`p-3 text-xs rounded-lg border ${testResult.success ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                    {testResult.message}
+                  </div>
+                )}
+
+                <div className="flex gap-3 justify-end pt-2">
+                  <button type="button" onClick={handleSendTestEmail} disabled={testSending} className="px-4 py-2 border border-white/10 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50">
+                    {testSending ? 'Sending Test...' : 'Send Test Notification'}
+                  </button>
+                  <button type="submit" className="px-5 py-2 bg-[#7c5cfc] hover:bg-[#7c5cfc]/90 text-white text-xs font-semibold rounded-lg transition-colors shadow-lg shadow-[#7c5cfc]/20">
+                    Save Config
+                  </button>
+                </div>
+
+              </form>
             </div>
           </div>
         )}
@@ -289,6 +586,8 @@ const SettingsComponent = ({ userName, setUserName }) => {
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isOutboxOpen, setIsOutboxOpen] = useState(false);
+  const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState('All');
   const [userName, setUserName] = useState(localStorage.getItem('registeredName') || 'John Doe');
   
@@ -307,14 +606,78 @@ const Dashboard = () => {
     ];
   });
 
+  // Sync simulated email toast events
+  useEffect(() => {
+    const handleToast = (e) => {
+      setToast({
+        title: e.detail.title,
+        message: e.detail.message,
+        type: e.detail.type
+      });
+      setTimeout(() => setToast(null), 5000);
+    };
+    window.addEventListener('ape-toast', handleToast);
+    return () => window.removeEventListener('ape-toast', handleToast);
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('ape-tasks', JSON.stringify(tasks));
   }, [tasks]);
 
-  const addTask = (task) => setTasks(prev => [task, ...prev]);
-  const toggleTaskStatus = (id) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: t.status === 'pending' ? 'completed' : 'pending' } : t));
+  // Background task checker for due reminders
+  useEffect(() => {
+    const checkDueTasks = async () => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const notifiedTasks = JSON.parse(localStorage.getItem('ape-notified-tasks') || '{}');
+      const preferences = JSON.parse(localStorage.getItem('notifPrefs') || '{}');
+      
+      const remindersEnabled = preferences.reminders !== false;
+      if (!remindersEnabled) return;
+
+      const pendingTasksDueToday = tasks.filter(t => t.status === 'pending' && t.dueDate === todayStr);
+      let updated = false;
+
+      for (const task of pendingTasksDueToday) {
+        if (!notifiedTasks[task.id] || notifiedTasks[task.id] !== todayStr) {
+          await sendEmailNotification('task_due', task);
+          notifiedTasks[task.id] = todayStr;
+          updated = true;
+        }
+      }
+
+      if (updated) {
+        localStorage.setItem('ape-notified-tasks', JSON.stringify(notifiedTasks));
+      }
+    };
+
+    if (tasks.length > 0) {
+      checkDueTasks();
+    }
+  }, [tasks]);
+
+  const addTask = (task) => {
+    setTasks(prev => [task, ...prev]);
+    const preferences = JSON.parse(localStorage.getItem('notifPrefs') || '{}');
+    if (preferences.assigned !== false) {
+      sendEmailNotification('task_created', task);
+    }
   };
+
+  const toggleTaskStatus = (id) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id === id) {
+        const newStatus = t.status === 'pending' ? 'completed' : 'pending';
+        const updated = { ...t, status: newStatus };
+        const preferences = JSON.parse(localStorage.getItem('notifPrefs') || '{}');
+        if (newStatus === 'completed' && preferences.completed !== false) {
+          sendEmailNotification('task_completed', updated);
+        }
+        return updated;
+      }
+      return t;
+    }));
+  };
+
   const deleteTask = (id) => setTasks(prev => prev.filter(t => t.id !== id));
 
   const stats = {
@@ -493,10 +856,18 @@ const Dashboard = () => {
                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
                New Task
             </button>
-            <div className="relative group cursor-pointer">
+            <div className="relative group cursor-pointer" title="In-App Notifications">
                <svg className="h-6 w-6 text-slate-400 hover:text-[#7c5cfc] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></span>
             </div>
+             
+             {/* Outbox / Email Log Button */}
+             <div onClick={() => setIsOutboxOpen(true)} className="relative group cursor-pointer" title="Email Outbox Log">
+                <svg className="h-6 w-6 text-slate-400 hover:text-[#7c5cfc] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <span className="absolute top-0 right-0 w-2 h-2 bg-[#7c5cfc] rounded-full animate-pulse"></span>
+             </div>
             <div className="flex items-center gap-3 cursor-pointer group">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">{userName}</p>
@@ -601,6 +972,8 @@ const Dashboard = () => {
       </main>
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={addTask} />
+      <OutboxDrawer isOpen={isOutboxOpen} onClose={() => setIsOutboxOpen(false)} />
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 };
